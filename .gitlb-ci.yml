@@ -1,0 +1,100 @@
+stages:
+  - create_env
+  - setUp_env
+  - build
+  - destroy_env
+
+Create_Env:
+  stage: create_env
+  image: registry.gitlab.com/gitlab-org/cloud-deploy/aws-base:latest
+  before_script:
+    - STS=($(aws sts assume-role-with-web-identity
+        --role-arn "arn:aws:iam::011974343726:role/gitlap-ec2"
+        --role-session-name "GitLabRunner-${CI_PROJECT_ID}-${CI_PIPELINE_ID}"
+        --web-identity-token $CI_JOB_JWT_V2
+        --duration-seconds 3600
+        --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]'
+        --output text))
+    - export AWS_ACCESS_KEY_ID="${STS[0]}"
+    - export AWS_SECRET_ACCESS_KEY="${STS[1]}"
+    - export AWS_SESSION_TOKEN="${STS[2]}"
+  script:
+    - aws ec2 run-instances --image-id ami-06e85d4c3149db26a --instance-type t2.micro --key-name ec2-rojeeme --security-group-ids sg-04a42c86c4a11e60f --associate-public-ip-address --region us-west-2
+
+
+# #######################################################################################################################
+
+
+SetUp_Env:
+  stage: setUp_env
+  image: registry.gitlab.com/gitlab-org/cloud-deploy/aws-base:latest
+  before_script:
+    - STS=($(aws sts assume-role-with-web-identity
+        --role-arn "arn:aws:iam::011974343726:role/gitlap-ec2"
+        --role-session-name "GitLabRunner-${CI_PROJECT_ID}-${CI_PIPELINE_ID}"
+        --web-identity-token $CI_JOB_JWT_V2
+        --duration-seconds 3600
+        --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]'
+        --output text))
+    - export AWS_ACCESS_KEY_ID="${STS[0]}"
+    - export AWS_SECRET_ACCESS_KEY="${STS[1]}"
+    - export AWS_SESSION_TOKEN="${STS[2]}"
+    - instanceId=$(aws ec2 describe-instances --region us-west-2 --filters "Name=instance-state-name,Values=running" --query "Reservations[].Instances[].InstanceId" --output text)
+    - instanceIp=$(aws ec2 describe-instances --region us-west-2 --instance-ids $instanceId --query 'Reservations[].Instances[].PublicIpAddress' --output text)
+    - echo "$instanceId"
+    - echo "$instanceIp"
+    - echo "$instanceIp ansible_connection=ssh ansible_user=ec2-user ansible_private_key_file=ec2-rojeeme.pem ansible_ssh_common_args='-o StrictHostKeyChecking=no'" >> hosts.ini
+    - cat hosts.ini
+  variables:
+    InstanceId: $instanceId
+    InstanceIp: $instanceIp
+
+
+  script:
+    - apt-get update && apt-get install -y ansible
+    - chmod 400 ec2-rojeeme.pem
+    # - ansible all -m ping -i hosts.ini ansible_ssh_common_args='-o StrictHostKeyChecking=no'
+    - ansible-playbook -i hosts.ini setUp_env.yml #--extra-vars "instance_ip=$InstanceIp"
+
+
+
+# ##########################################################################################################################################################################################
+
+
+Build:
+  stage: build
+  tags:
+    - my-runner-ec2
+  script:
+    - echo "Running my job on the runner with the tag 'my-runner-ec2'"
+    - pwd
+  
+
+# ##################################################################################################################################
+
+Destroy_Env:
+  stage: destroy_env
+  image: registry.gitlab.com/gitlab-org/cloud-deploy/aws-base:latest
+  before_script:
+    - STS=($(aws sts assume-role-with-web-identity
+        --role-arn "arn:aws:iam::011974343726:role/gitlap-ec2"
+        --role-session-name "GitLabRunner-${CI_PROJECT_ID}-${CI_PIPELINE_ID}"
+        --web-identity-token $CI_JOB_JWT_V2
+        --duration-seconds 3600
+        --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]'
+        --output text))
+    - export AWS_ACCESS_KEY_ID="${STS[0]}"
+    - export AWS_SECRET_ACCESS_KEY="${STS[1]}"
+    - export AWS_SESSION_TOKEN="${STS[2]}"
+    - instanceId=$(aws ec2 describe-instances --region us-west-2 --filters "Name=instance-state-name,Values=running" --query "Reservations[].Instances[].InstanceId" --output text)
+    - instanceIp=$(aws ec2 describe-instances --region us-west-2 --instance-ids $instanceId --query 'Reservations[].Instances[].PublicIpAddress' --output text )
+    - echo "$instanceId"
+    - echo "$instanceIp"
+
+  variables:
+    InstanceId: $instanceId
+    InstanceIp: $instanceIp
+
+
+  script:
+    - aws ec2 terminate-instances --instance-ids $instanceId --region us-west-2

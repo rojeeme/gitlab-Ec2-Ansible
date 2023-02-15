@@ -1,0 +1,52 @@
+---
+- name: Install GitLab Runner
+  hosts: ec2_instances
+  gather_facts: false
+  tasks:
+    - name: Install Git
+      become: true
+      become_method: sudo
+      yum:
+        name: git
+        state: present
+
+    - name: Download the binary for your system
+      become: true
+      become_method: sudo
+      command: curl -L --output /usr/local/bin/gitlab-runner https://gitlab-runner-downloads.s3.amazonaws.com/latest/binaries/gitlab-runner-linux-amd64
+
+    - name: Give it permission to execute
+      become: true
+      become_method: sudo
+      command: chmod +x /usr/local/bin/gitlab-runner
+
+    - name: Create a GitLab Runner user
+      become: true
+      become_method: sudo
+      user:
+        name: gitlab-runner
+        comment: GitLab Runner
+        createhome: yes
+        shell: /bin/bash
+
+    - name: Install and run as a service
+      become: true
+      become_method: sudo
+      command: /usr/local/bin/gitlab-runner install --user=gitlab-runner --working-directory=/home/gitlab-runner
+      changed_when: false
+
+    - name: Start GitLab Runner service
+      become: true
+      become_method: sudo
+      service:
+        name: gitlab-runner
+        state: started
+
+    - name: Register GitLab Runner
+      become: true
+      become_method: sudo
+      command: /usr/local/bin/gitlab-runner register --url https://gitlab.com/ --registration-token GR1348941c6DJAy-4zPXBZsWAufVu --executor shell --description "My runner EC2" --run-untagged --locked=false  --tag-list "my-runner-ec2" --non-interactive
+
+      environment:
+        REGISTRATION_TOKEN: GR1348941c6DJAy-4zPXBZsWAufVu
+
